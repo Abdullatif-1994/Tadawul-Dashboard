@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TADAWUL Market Dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface-1: #fcfcfb;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6; --series-8: #e34948;
+    --sb: #1c5cab; --b: #5598e7; --n: #c3c2b7; --s: #e07a79; --ss: #c22f2f;
+    --up: #006300; --down: #d03b3b;
+    --alloc: #fff8e6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface-1: #1a1a19;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5; --series-8: #e66767;
+      --sb: #6da7ec; --b: #256abf; --n: #52514e; --s: #f2b3b3; --ss: #d03b3b;
+      --up: #0ca30c; --down: #e66767;
+      --alloc: #2a2412;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 20px; max-width: 1200px; margin: 0 auto;
+  }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  h1 { font-size: 22px; font-weight: 650; }
+  .sub { color: var(--text-secondary); font-size: 13px; }
+  #updated { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+  button.refresh {
+    font: inherit; font-size: 13px; padding: 5px 14px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface-1);
+    color: var(--text-primary); cursor: pointer;
+  }
+  button.refresh:hover { border-color: var(--baseline); }
+  .grid { display: grid; gap: 14px; margin-top: 14px; }
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px;
+  }
+  .card h2 { font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; }
+  .tile .label { font-size: 12.5px; color: var(--text-secondary); }
+  .tile .value { font-size: 28px; font-weight: 600; margin-top: 2px; }
+  .tile .delta { font-size: 12.5px; margin-top: 2px; color: var(--muted); }
+  .two-col { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 820px) { .two-col { grid-template-columns: 1fr; } }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
+  .legend .key { display: inline-flex; align-items: center; gap: 5px; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; font-weight: 600; font-size: 12px; color: var(--text-secondary);
+    border-bottom: 1px solid var(--baseline); padding: 7px 8px; white-space: nowrap;
+  }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.alloc td { background: var(--alloc); }
+  .tbl-wrap { overflow-x: auto; }
+  .pos { color: var(--up); } .neg { color: var(--down); }
+  .note { font-size: 12px; color: var(--muted); line-height: 1.55; margin-top: 12px; }
+  .fade { opacity: 0.45; transition: opacity 0.2s; }
+  #error {
+    display: none; background: var(--surface-1); border: 1px solid var(--down);
+    border-radius: 12px; padding: 14px 18px; margin-top: 14px; font-size: 13.5px;
+  }
+  .bar-row { cursor: default; }
+  svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #tooltip {
+    position: fixed; display: none; pointer-events: none; z-index: 10;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 10px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+  }
+  footer { margin-top: 22px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  a { color: var(--series-1); }
+</style>
+</head>
+<body>
+<header>
+  <h1>TADAWUL Market Dashboard</h1>
+  <span class="sub">Saudi Exchange &middot; live from TradingView</span>
+  <span id="updated">Loading&hellip;</span>
+  <button class="refresh" onclick="loadAll()">&#8635; Refresh</button>
+</header>
+<div class="sub">Auto-refreshes every 5 minutes. Trading hours: Sun&ndash;Thu 10:00&ndash;15:10 (Riyadh).</div>
+<div id="error"></div>
+
+<div class="grid kpis" id="kpis"></div>
+
+<div class="grid two-col">
+  <div class="card">
+    <h2>Overall market &mdash; TASI index</h2>
+    <div id="tasi-widget" style="height:260px"></div>
+  </div>
+  <div class="card">
+    <h2>Technical rating breakdown (all stocks)</h2>
+    <div id="ratings"></div>
+    <h2 style="margin-top:18px">Sector performance today (cap-weighted % change)</h2>
+    <div id="sectors"></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h2>Top 20 by technical rating &mdash; trade plan (liquidity &ge; SAR 1mn)</h2>
+  <div class="tbl-wrap"><table id="top20">
+    <thead><tr>
+      <th class="num">Rank</th><th>Ticker</th><th>Company</th>
+      <th class="num">Close</th><th class="num">Chg %</th><th class="num">Score</th>
+      <th class="num">Alloc %</th><th class="num">Buy Below</th><th class="num">Sell Target</th>
+      <th>Entry Window</th><th>Target Horizon*</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <div class="note">
+    Ranking: TradingView technical score (best first), ties broken by value traded.
+    Allocation: 50 / 20 / 15 / 10 / 5% over ranks 1&ndash;5 (cap 50%, min 4 names, total 100%).
+    Buy Below = Close &minus; 1&times;ATR(14) &middot; Sell Target = Close + 2&times;ATR(14) (2:1 reward-to-risk).
+    *Timing: entry expected within 2&ndash;5 trading days (stale after ~5); target within 6&ndash;15 trading days <b>after entry</b> (time-stop ~20).
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<footer>
+  <b>Disclaimer:</b> Mechanical, rules-based output computed from TradingView technical data at load time.
+  Not investment advice. Data: <a href="https://www.tradingview.com/screener/" target="_blank" rel="noopener">TradingView screener</a>
+  (scanner.tradingview.com, market=ksa) &middot; TASI chart: TradingView widget &middot;
+  Methodology: <a href="https://www.tradingview.com/support/solutions/43000614331-technicals-ratings/" target="_blank" rel="noopener">TradingView technical ratings</a>.
+</footer>
+
+<script>
+const SCAN_URL = 'https://scanner.tradingview.com/ksa/scan?label-product=screener-stock';
+const COLS = ['name','description','close','change','volume','market_cap_basic',
+              'price_earnings_ttm','dividends_yield_current','RSI','Recommend.All',
+              'sector','type','ATR'];
+const ALLOC = {1: 50, 2: 20, 3: 15, 4: 10, 5: 5};
+const $ = id => document.getElementById(id);
+const fmt = (v, d = 2) => v == null ? '—' : v.toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
+const cls = v => v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+
+function ratingWord(s) {
+  if (s == null) return '';
+  if (s >= 0.5) return 'Strong Buy';
+  if (s >= 0.1) return 'Buy';
+  if (s > -0.1) return 'Neutral';
+  if (s > -0.5) return 'Sell';
+  return 'Strong Sell';
+}
+
+async function fetchData() {
+  const body = JSON.stringify({
+    columns: COLS, markets: ['ksa'],
+    sort: {sortBy: 'market_cap_basic', sortOrder: 'desc'}, range: [0, 500]
+  });
+  const r = await fetch(SCAN_URL, {method: 'POST', headers: {'Content-Type': 'text/plain'}, body});
+  if (!r.ok) throw new Error('Scanner HTTP ' + r.status);
+  const j = await r.json();
+  return j.data.map(x => {
+    const o = {};
+    COLS.forEach((c, i) => o[c] = x.d[i]);
+    return o;
+  });
+}
+
+function renderKPIs(stocks) {
+  const adv = stocks.filter(s => s.change > 0).length;
+  const dec = stocks.filter(s => s.change < 0).length;
+  const mcap = stocks.reduce((a, s) => a + (s.market_cap_basic || 0), 0);
+  const pes = stocks.map(s => s.price_earnings_ttm).filter(v => v != null).sort((a, b) => a - b);
+  const medPE = pes.length ? pes[Math.floor(pes.length / 2)] : null;
+  const dys = stocks.map(s => s.dividends_yield_current).filter(v => v > 0);
+  const avgDY = dys.length ? dys.reduce((a, b) => a + b, 0) / dys.length : null;
+  const tiles = [
+    ['Listed stocks', stocks.length, ''],
+    ['Advancers / decliners', adv + ' / ' + dec, 'breadth ' + (dec ? (adv / dec).toFixed(2) : '—')],
+    ['Total market cap', 'SAR ' + (mcap / 1e12).toFixed(2) + 'tn', 'incl. Aramco'],
+    ['Median P/E (TTM)', medPE ? medPE.toFixed(1) : '—', 'profitable companies'],
+    ['Avg dividend yield', avgDY ? avgDY.toFixed(2) + '%' : '—', 'yielding stocks only'],
+  ];
+  $('kpis').innerHTML = tiles.map(([l, v, d]) =>
+    `<div class="card tile"><div class="label">${l}</div><div class="value">${v}</div><div class="delta">${d}</div></div>`).join('');
+}
+
+function renderRatings(stocks) {
+  const buckets = ['Strong Buy', 'Buy', 'Neutral', 'Sell', 'Strong Sell'];
+  const colors = ['var(--sb)', 'var(--b)', 'var(--n)', 'var(--s)', 'var(--ss)'];
+  const counts = buckets.map(b => stocks.filter(s => ratingWord(s['Recommend.All']) === b).length);
+  const total = counts.reduce((a, b) => a + b, 0) || 1;
+  let x = 0;
+  const W = 100;
+  const segs = counts.map((c, i) => {
+    const w = c / total * W;
+    const seg = `<rect x="${x}" y="0" width="${Math.max(w - 0.6, 0)}" height="22" rx="1.2" fill="${colors[i]}"
+      data-tip="${buckets[i]}: ${c} stocks (${(c / total * 100).toFixed(1)}%)"></rect>`;
+    x += w;
+    return seg;
+  }).join('');
+  $('ratings').innerHTML =
+    `<svg viewBox="0 0 100 22" width="100%" height="30" preserveAspectRatio="none">${segs}</svg>
+     <div class="legend">${buckets.map((b, i) =>
+       `<span class="key"><span class="swatch" style="background:${colors[i]}"></span>${b} · ${counts[i]}</span>`).join('')}</div>`;
+}
+
+function renderSectors(stocks) {
+  const by = {};
+  stocks.forEach(s => {
+    if (s.change == null || !s.market_cap_basic || !s.sector) return;
+    (by[s.sector] = by[s.sector] || []).push(s);
+  });
+  const rows = Object.entries(by).map(([sec, arr]) => {
+    const w = arr.reduce((a, s) => a + s.market_cap_basic, 0);
+    const chg = arr.reduce((a, s) => a + s.change * s.market_cap_basic, 0) / w;
+    return {sec, chg, n: arr.length};
+  }).sort((a, b) => b.chg - a.chg);
+  const maxAbs = Math.max(...rows.map(r => Math.abs(r.chg)), 0.1);
+  const RH = 24, LW = 150, PW = 420, mid = LW + (PW - LW) / 2;
+  const H = rows.length * RH + 8;
+  const svgRows = rows.map((r, i) => {
+    const y = i * RH + 4;
+    const scale = ((PW - LW) / 2 - 48) / maxAbs;
+    const w = Math.abs(r.chg) * scale;
+    const x0 = r.chg >= 0 ? mid : mid - w;
+    const color = r.chg >= 0 ? 'var(--series-1)' : 'var(--series-8)';
+    const lblX = r.chg >= 0 ? mid + w + 5 : mid - w - 5;
+    const anchor = r.chg >= 0 ? 'start' : 'end';
+    return `<g class="bar-row" data-tip="${r.sec}: ${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}% (${r.n} stocks, cap-weighted)">
+      <text x="${LW - 8}" y="${y + 12}" text-anchor="end" font-size="11.5" fill="var(--text-secondary)">${r.sec.length > 21 ? r.sec.slice(0, 20) + '…' : r.sec}</text>
+      <rect x="${x0}" y="${y}" width="${Math.max(w, 0.5)}" height="15" rx="2" fill="${color}"></rect>
+      <text x="${lblX}" y="${y + 12}" text-anchor="${anchor}" font-size="11" fill="var(--muted)">${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}%</text>
+    </g>`;
+  }).join('');
+  $('sectors').innerHTML =
+    `<svg viewBox="0 0 ${PW + 55} ${H}" width="100%" style="max-width:640px">
+       <line x1="${mid}" y1="0" x2="${mid}" y2="${H}" stroke="var(--baseline)" stroke-width="1"></line>
+       ${svgRows}</svg>`;
+}
+
+function renderTop20(stocks) {
+  const liquid = stocks.filter(s =>
+    s['Recommend.All'] != null && s.close && s.volume && s.close * s.volume >= 1e6);
+  liquid.sort((a, b) =>
+    (b['Recommend.All'] - a['Recommend.All']) || (b.close * b.volume - a.close * a.volume));
+  const top = liquid.slice(0, 20);
+  $('top20').querySelector('tbody').innerHTML = top.map((s, i) => {
+    const rank = i + 1, atr = s.ATR || 0;
+    const buy = s.close - atr, sell = s.close + 2 * atr;
+    return `<tr class="${rank <= 5 ? 'alloc' : ''}">
+      <td class="num"><b>${rank}</b></td>
+      <td><b>${s.name}</b></td><td>${s.description}</td>
+      <td class="num">${fmt(s.close)}</td>
+      <td class="num ${cls(s.change)}">${s.change == null ? '—' : (s.change > 0 ? '+' : '') + s.change.toFixed(2) + '%'}</td>
+      <td class="num">${s['Recommend.All'].toFixed(3)}</td>
+      <td class="num">${ALLOC[rank] ? '<b>' + ALLOC[rank] + '%</b>' : '—'}</td>
+      <td class="num">${fmt(buy)}</td><td class="num">${fmt(sell)}</td>
+      <td>2–5 days</td><td>6–15 days</td>
+    </tr>`;
+  }).join('');
+}
+
+function mountTASI() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const cont = $('tasi-widget');
+  cont.innerHTML = '<div class="tradingview-widget-container" style="height:100%"><div class="tradingview-widget-container__widget" style="height:100%"></div></div>';
+  const s = document.createElement('script');
+  s.src = 'https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js';
+  s.async = true;
+  s.textContent = JSON.stringify({
+    symbol: 'TADAWUL:TASI', width: '100%', height: '100%', locale: 'en',
+    dateRange: '3M', colorTheme: dark ? 'dark' : 'light', isTransparent: true,
+    autosize: true, largeChartUrl: 'https://www.tradingview.com/chart/?symbol=TADAWUL%3ATASI'
+  });
+  cont.firstChild.appendChild(s);
+}
+
+const tooltip = () => $('tooltip');
+document.addEventListener('mousemove', e => {
+  const t = e.target.closest('[data-tip]');
+  const tip = tooltip();
+  if (t) {
+    tip.textContent = t.getAttribute('data-tip');
+    tip.style.display = 'block';
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 240) + 'px';
+    tip.style.top = (e.clientY + 14) + 'px';
+  } else tip.style.display = 'none';
+});
+
+async function loadAll() {
+  document.body.classList.add('fade');
+  $('error').style.display = 'none';
+  try {
+    const data = await fetchData();
+    const stocks = data.filter(s => s.type === 'stock');
+    renderKPIs(stocks);
+    renderRatings(stocks);
+    renderSectors(stocks);
+    renderTop20(stocks);
+    $('updated').textContent = 'Updated ' + new Date().toLocaleString('en-GB',
+      {timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short'}) + ' (Riyadh)';
+  } catch (e) {
+    $('error').style.display = 'block';
+    $('error').textContent = 'Could not load live data (' + e.message + '). Check your internet connection and refresh.';
+  }
+  document.body.classList.remove('fade');
+}
+
+mountTASI();
+loadAll();
+setInterval(loadAll, 5 * 60 * 1000);
+</script>
+</body>
+</html>
