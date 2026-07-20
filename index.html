@@ -102,7 +102,8 @@
 <div class="grid two-col">
   <div class="card">
     <h2>Overall market &mdash; TASI index</h2>
-    <div id="tasi-widget" style="height:260px"></div>
+    <div id="tasi-panel">Loading&hellip;</div>
+    <div class="note"><a href="https://www.tradingview.com/chart/?symbol=TADAWUL%3ATASI" target="_blank" rel="noopener">Open full TASI chart on TradingView &rarr;</a></div>
   </div>
   <div class="card">
     <h2>Technical rating breakdown (all stocks)</h2>
@@ -116,10 +117,11 @@
   <h2>Top 20 by technical rating &mdash; trade plan (liquidity &ge; SAR 1mn)</h2>
   <div class="tbl-wrap"><table id="top20">
     <thead><tr>
-      <th class="num">Rank</th><th>Ticker</th><th>Company</th>
+      <th class="num">Rank</th><th>Ticker</th><th>Company</th><th>Trend</th>
       <th class="num">Close</th><th class="num">Chg %</th><th class="num">Score</th>
       <th class="num">Alloc %</th><th class="num">Buy Below</th><th class="num">Sell Target</th>
       <th>Entry Window</th><th>Target Horizon*</th>
+      <th class="num">Dividends</th><th>Div Freq</th><th>Next Earnings</th><th>Upcoming Invest.</th><th>Next Investment (title &middot; date)</th>
     </tr></thead>
     <tbody></tbody>
   </table></div>
@@ -128,6 +130,11 @@
     Allocation: 50 / 20 / 15 / 10 / 5% over ranks 1&ndash;5 (cap 50%, min 4 names, total 100%).
     Buy Below = Close &minus; 1&times;ATR(14) &middot; Sell Target = Close + 2&times;ATR(14) (2:1 reward-to-risk).
     *Timing: entry expected within 2&ndash;5 trading days (stale after ~5); target within 6&ndash;15 trading days <b>after entry</b> (time-stop ~20).
+    Dividends: yield &gt; 0 on TradingView data; frequency estimated from annual&divide;quarterly dividends-per-share where the data source does not publish it (est.).
+    Next Earnings: expected financial-statement release per TradingView; TBA = not yet announced.
+    Trend: &#9650; Positive = price above 50-day average with positive 1-month performance; &#9660; Negative = below with negative momentum; &#9670; Mixed = signals disagree.
+    Upcoming Invest.: best-effort scan of the last 60 days of news headlines for investment / expansion / contract / acquisition announcements; click through to read the actual news before acting &mdash; the keyword scan can miss or over-match.
+    Next Investment: headline and date of the most recent matching announcement (the date shown is the announcement date; hover for the full title, click to open the news).
   </div>
 </div>
 
@@ -136,7 +143,7 @@
 <footer>
   <b>Disclaimer:</b> Mechanical, rules-based output computed from TradingView technical data at load time.
   Not investment advice. Data: <a href="https://www.tradingview.com/screener/" target="_blank" rel="noopener">TradingView screener</a>
-  (scanner.tradingview.com, market=ksa) &middot; TASI chart: TradingView widget &middot;
+  (scanner.tradingview.com, market=ksa) &middot;
   Methodology: <a href="https://www.tradingview.com/support/solutions/43000614331-technicals-ratings/" target="_blank" rel="noopener">TradingView technical ratings</a>.
 </footer>
 
@@ -145,6 +152,8 @@ const SCAN_URL = 'https://scanner.tradingview.com/ksa/scan?label-product=screene
 const COLS = ['name','description','close','change','volume','market_cap_basic',
               'price_earnings_ttm','dividends_yield_current','RSI','Recommend.All',
               'sector','type','ATR'];
+const EXT_COLS = ['SMA50','Perf.1M','dividends_per_share_fy','dividends_per_share_fq',
+                  'dividend_frequency','earnings_release_next_date'];
 const ALLOC = {1: 50, 2: 20, 3: 15, 4: 10, 5: 5};
 const $ = id => document.getElementById(id);
 const fmt = (v, d = 2) => v == null ? '—' : v.toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
@@ -160,18 +169,52 @@ function ratingWord(s) {
 }
 
 async function fetchData() {
-  const body = JSON.stringify({
-    columns: COLS, markets: ['ksa'],
-    sort: {sortBy: 'market_cap_basic', sortOrder: 'desc'}, range: [0, 500]
-  });
-  const r = await fetch(SCAN_URL, {method: 'POST', headers: {'Content-Type': 'text/plain'}, body});
-  if (!r.ok) throw new Error('Scanner HTTP ' + r.status);
-  const j = await r.json();
-  return j.data.map(x => {
-    const o = {};
-    COLS.forEach((c, i) => o[c] = x.d[i]);
-    return o;
-  });
+  const attempt = async cols => {
+    const body = JSON.stringify({
+      columns: cols, markets: ['ksa'],
+      sort: {sortBy: 'market_cap_basic', sortOrder: 'desc'}, range: [0, 500]
+    });
+    const r = await fetch(SCAN_URL, {method: 'POST', headers: {'Content-Type': 'text/plain'}, body});
+    if (!r.ok) throw new Error('Scanner HTTP ' + r.status);
+    const j = await r.json();
+    return j.data.map(x => {
+      const o = {};
+      cols.forEach((c, i) => o[c] = x.d[i]);
+      return o;
+    });
+  };
+  try {
+    return await attempt([...COLS, ...EXT_COLS]);
+  } catch (e) {
+    return await attempt(COLS);  // fallback: extended fields unavailable
+  }
+}
+
+function freqWord(s) {
+  if (s.dividend_frequency) return s.dividend_frequency;
+  const dy = s.dividends_yield_current, fy = s.dividends_per_share_fy, fq = s.dividends_per_share_fq;
+  if (!(dy > 0 || fy > 0)) return '—';
+  if (fq > 0 && fy > 0) {
+    const r = fy / fq;
+    if (r >= 3.5) return '4×/yr (est.)';
+    if (r >= 1.6) return '2×/yr (est.)';
+    return '1×/yr (est.)';
+  }
+  return '1–2×/yr (est.)';
+}
+
+function trendWord(s) {
+  const hasSMA = s.SMA50 != null, mom = s['Perf.1M'];
+  if (!hasSMA && mom == null) return ['—', ''];
+  const above = hasSMA && s.close > s.SMA50;
+  if (above && mom > 0) return ['▲ Positive', 'pos'];
+  if (!above && mom < 0) return ['▼ Negative', 'neg'];
+  return ['◆ Mixed', ''];
+}
+
+function earnDate(ts) {
+  if (!ts) return 'TBA';
+  return new Date(ts * 1000).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'});
 }
 
 function renderKPIs(stocks) {
@@ -259,29 +302,114 @@ function renderTop20(stocks) {
     return `<tr class="${rank <= 5 ? 'alloc' : ''}">
       <td class="num"><b>${rank}</b></td>
       <td><b>${s.name}</b></td><td>${s.description}</td>
+      <td class="${trendWord(s)[1]}">${trendWord(s)[0]}</td>
       <td class="num">${fmt(s.close)}</td>
       <td class="num ${cls(s.change)}">${s.change == null ? '—' : (s.change > 0 ? '+' : '') + s.change.toFixed(2) + '%'}</td>
       <td class="num">${s['Recommend.All'].toFixed(3)}</td>
       <td class="num">${ALLOC[rank] ? '<b>' + ALLOC[rank] + '%</b>' : '—'}</td>
       <td class="num">${fmt(buy)}</td><td class="num">${fmt(sell)}</td>
       <td>2–5 days</td><td>6–15 days</td>
+      <td class="num">${(s.dividends_yield_current > 0 || s.dividends_per_share_fy > 0) ? 'Yes · ' + (s.dividends_yield_current || 0).toFixed(2) + '%' : 'No'}</td>
+      <td>${freqWord(s)}</td>
+      <td>${earnDate(s.earnings_release_next_date)}</td>
+      <td id="inv-${s.name}"><a href="https://www.tradingview.com/symbols/TADAWUL-${s.name}/news/" target="_blank" rel="noopener">scanning&hellip;</a></td>
+      <td id="invt-${s.name}" style="max-width:230px;overflow:hidden;text-overflow:ellipsis">&hellip;</td>
     </tr>`;
   }).join('');
+  scanInvestments(top);
 }
 
-function mountTASI() {
-  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-  const cont = $('tasi-widget');
-  cont.innerHTML = '<div class="tradingview-widget-container" style="height:100%"><div class="tradingview-widget-container__widget" style="height:100%"></div></div>';
-  const s = document.createElement('script');
-  s.src = 'https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js';
-  s.async = true;
-  s.textContent = JSON.stringify({
-    symbol: 'TADAWUL:TASI', width: '100%', height: '100%', locale: 'en',
-    dateRange: '3M', colorTheme: dark ? 'dark' : 'light', isTransparent: true,
-    autosize: true, largeChartUrl: 'https://www.tradingview.com/chart/?symbol=TADAWUL%3ATASI'
+const INV_KW = /invest|expansion|expand|project|contract|award|acquisi|acquire|capex|plant|factory|joint venture|stake|agreement|mou|memorandum|develop/i;
+
+async function scanInvestments(top) {
+  await Promise.allSettled(top.map(async s => {
+    const cell = $('inv-' + s.name), tcell = $('invt-' + s.name);
+    if (!cell) return;
+    const link = `https://www.tradingview.com/symbols/TADAWUL-${s.name}/news/`;
+    try {
+      const r = await fetch(`https://news-headlines.tradingview.com/v2/headlines?client=web&lang=en&symbol=TADAWUL%3A${s.name}`);
+      if (!r.ok) throw new Error();
+      const j = await r.json();
+      const items = Array.isArray(j) ? j : (j.items || []);
+      const cutoff = Date.now() - 60 * 86400000;
+      const norm = it => {
+        let t = it.published || it.publishedAt || 0;
+        if (t < 1e12) t *= 1000;
+        return {title: it.title || '', ts: t};
+      };
+      const hits = items.map(norm)
+        .filter(it => it.ts > cutoff && INV_KW.test(it.title))
+        .sort((a, b) => b.ts - a.ts);
+      cell.innerHTML = hits.length
+        ? `<a href="${link}" target="_blank" rel="noopener" class="pos">Yes &middot; ${hits.length} news</a>`
+        : `<a href="${link}" target="_blank" rel="noopener" style="color:var(--muted)">None found</a>`;
+      if (tcell) {
+        if (hits.length) {
+          const h = hits[0];
+          const d = new Date(h.ts).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'});
+          const short = h.title.length > 60 ? h.title.slice(0, 58) + '…' : h.title;
+          tcell.innerHTML = `<a href="${link}" target="_blank" rel="noopener" data-tip="${h.title.replace(/"/g, '&quot;')} (${d})" style="color:inherit">${short} <span style="color:var(--muted)">&middot; ${d}</span></a>`;
+        } else {
+          tcell.textContent = '—';
+        }
+      }
+    } catch (e) {
+      cell.innerHTML = `<a href="${link}" target="_blank" rel="noopener">Check news &rarr;</a>`;
+      if (tcell) tcell.innerHTML = `<a href="${link}" target="_blank" rel="noopener">Check news &rarr;</a>`;
+    }
+  }));
+}
+
+async function fetchTASI() {
+  const body = JSON.stringify({
+    columns: ['name', 'close', 'change', 'Perf.W', 'Perf.1M', 'Perf.3M',
+              'Perf.6M', 'Perf.YTD', 'Perf.Y',
+              'price_52_week_high', 'price_52_week_low'],
+    symbols: {tickers: ['TADAWUL:TASI']}, markets: ['ksa']
   });
-  cont.firstChild.appendChild(s);
+  const r = await fetch(SCAN_URL, {method: 'POST', headers: {'Content-Type': 'text/plain'}, body});
+  if (!r.ok) throw new Error('TASI HTTP ' + r.status);
+  const j = await r.json();
+  return j.data[0].d;
+}
+
+function renderTASI(d) {
+  const [, close, chg, w, m1, m3, m6, ytd, y1, hi52, lo52] = d;
+  const periods = [['1W', w], ['1M', m1], ['3M', m3], ['6M', m6], ['YTD', ytd], ['1Y', y1]];
+  const maxAbs = Math.max(...periods.map(p => Math.abs(p[1] || 0)), 0.5);
+  const LW = 52, PW = 400, mid = LW + (PW - LW) / 2, RH = 26;
+  const scale = ((PW - LW) / 2 - 52) / maxAbs;
+  const bars = periods.map(([lbl, v], i) => {
+    const val = v || 0, y = i * RH + 4;
+    const bw = Math.abs(val) * scale;
+    const x0 = val >= 0 ? mid : mid - bw;
+    const color = val >= 0 ? 'var(--series-1)' : 'var(--series-8)';
+    const lx = val >= 0 ? mid + bw + 5 : mid - bw - 5;
+    return `<g class="bar-row" data-tip="TASI ${lbl}: ${val >= 0 ? '+' : ''}${val.toFixed(2)}%">
+      <text x="${LW - 8}" y="${y + 13}" text-anchor="end" font-size="11.5" fill="var(--text-secondary)">${lbl}</text>
+      <rect x="${x0}" y="${y}" width="${Math.max(bw, 0.5)}" height="16" rx="2" fill="${color}"></rect>
+      <text x="${lx}" y="${y + 13}" text-anchor="${val >= 0 ? 'start' : 'end'}" font-size="11" fill="var(--muted)">${val >= 0 ? '+' : ''}${val.toFixed(2)}%</text>
+    </g>`;
+  }).join('');
+  const pos52 = hi52 > lo52 ? (close - lo52) / (hi52 - lo52) : 0.5;
+  $('tasi-panel').innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <span style="font-size:40px;font-weight:650">${close.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
+      <span class="${cls(chg)}" style="font-size:15px;font-weight:600">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}% today</span>
+    </div>
+    <svg viewBox="0 0 ${PW + 10} ${periods.length * RH + 8}" width="100%" style="max-width:460px;margin-top:10px">
+      <line x1="${mid}" y1="0" x2="${mid}" y2="${periods.length * RH + 8}" stroke="var(--baseline)" stroke-width="1"></line>
+      ${bars}
+    </svg>
+    <div style="margin-top:10px">
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted)">
+        <span>52w low ${lo52.toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
+        <span>52w high ${hi52.toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
+      </div>
+      <div style="position:relative;height:6px;border-radius:3px;background:var(--grid);margin-top:4px" data-tip="TASI at ${(pos52 * 100).toFixed(0)}% of its 52-week range">
+        <div style="position:absolute;left:${(pos52 * 100).toFixed(1)}%;top:-3px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--series-1);border:2px solid var(--surface-1)"></div>
+      </div>
+    </div>`;
 }
 
 const tooltip = () => $('tooltip');
@@ -300,8 +428,9 @@ async function loadAll() {
   document.body.classList.add('fade');
   $('error').style.display = 'none';
   try {
-    const data = await fetchData();
+    const [data, tasi] = await Promise.all([fetchData(), fetchTASI()]);
     const stocks = data.filter(s => s.type === 'stock');
+    renderTASI(tasi);
     renderKPIs(stocks);
     renderRatings(stocks);
     renderSectors(stocks);
@@ -315,7 +444,6 @@ async function loadAll() {
   document.body.classList.remove('fade');
 }
 
-mountTASI();
 loadAll();
 setInterval(loadAll, 5 * 60 * 1000);
 </script>
