@@ -104,6 +104,8 @@
     <h2>Overall market &mdash; TASI index</h2>
     <div id="tasi-panel">Loading&hellip;</div>
     <div class="note"><a href="https://www.tradingview.com/chart/?symbol=TADAWUL%3ATASI" target="_blank" rel="noopener">Open full TASI chart on TradingView &rarr;</a></div>
+    <h2 style="margin-top:16px">Today's movers</h2>
+    <div id="movers"></div>
   </div>
   <div class="card">
     <h2>Technical rating breakdown (all stocks)</h2>
@@ -114,27 +116,28 @@
 </div>
 
 <div class="card" style="margin-top:14px">
-  <h2>Top 20 by technical rating &mdash; trade plan (liquidity &ge; SAR 1mn)</h2>
+  <h2>Top 20 by Opportunity Score &mdash; trade plan (liquidity &ge; SAR 1mn)</h2>
   <div class="tbl-wrap"><table id="top20">
     <thead><tr>
       <th class="num">Rank</th><th>Ticker</th><th>Company</th><th>Trend</th>
-      <th class="num">Close</th><th class="num">Chg %</th><th class="num">Score</th>
-      <th class="num">Alloc %</th><th class="num">Buy Below</th><th class="num">Sell Target</th>
-      <th>Entry Window</th><th>Target Horizon*</th>
-      <th class="num">Dividends</th><th>Div Freq</th><th>Next Earnings</th><th>Upcoming Invest.</th><th>Next Investment (title &middot; date)</th>
+      <th class="num">Close</th><th class="num">Chg %</th><th class="num">EMA &Delta; (21)</th><th class="num">Opp Score</th>
+      <th class="num">Alloc %</th><th class="num">Buy Below</th><th class="num">Stop Loss</th><th class="num">Sell Target</th>
+      <th class="num">Est. Entry*</th><th class="num">Est. Target*</th>
+      <th class="num">vs 52w High</th><th class="num">Vol Activity</th>
+      <th class="num">Dividends</th><th>Div Freq</th><th>Next Earnings</th><th>Upcoming Invest.</th>
     </tr></thead>
     <tbody></tbody>
   </table></div>
   <div class="note">
-    Ranking: TradingView technical score (best first), ties broken by value traded.
-    Allocation: 50 / 20 / 15 / 10 / 5% over ranks 1&ndash;5 (cap 50%, min 4 names, total 100%).
-    Buy Below = Close &minus; 1&times;ATR(14) &middot; Sell Target = Close + 2&times;ATR(14) (2:1 reward-to-risk).
-    *Timing: entry expected within 2&ndash;5 trading days (stale after ~5); target within 6&ndash;15 trading days <b>after entry</b> (time-stop ~20).
-    Dividends: yield &gt; 0 on TradingView data; frequency estimated from annual&divide;quarterly dividends-per-share where the data source does not publish it (est.).
-    Next Earnings: expected financial-statement release per TradingView; TBA = not yet announced.
-    Trend: &#9650; Positive = price above 50-day average with positive 1-month performance; &#9660; Negative = below with negative momentum; &#9670; Mixed = signals disagree.
-    Upcoming Invest.: best-effort scan of the last 60 days of news headlines for investment / expansion / contract / acquisition announcements; click through to read the actual news before acting &mdash; the keyword scan can miss or over-match.
-    Next Investment: headline and date of the most recent matching announcement (the date shown is the announcement date; hover for the full title, click to open the news).
+    <b>Opportunity Score /100</b> (ranking basis): 30% TradingView technical rating + 15% trend &amp; momentum (price vs 50-day average, 1-month performance) + 15% valuation (P/E vs the whole market, cheaper = higher) + 10% dividend yield + 15% RSI positioning (sweet spot 40&ndash;65: room to rise, not overheated) + 15% liquidity. A blended score keeps the ranking useful in all market conditions &mdash; pure momentum tops out in rallies, pure value tops out in sell-offs.
+    Allocation: <b>dynamic</b> &mdash; proportional to the cube of each stock's Opportunity Score across the top 5 (a clearly stronger setup earns a larger share; near-equal scores split near-equally), capped at 50% per name, floored at 3%, total 100%.
+    EMA &Delta; (21): the latest-day difference (SAR) between (a) the 21-day EMA of daily close prices and (b) the EMA of that EMA. Both use daily data as of the last session. Positive = uptrend, negative = downtrend. Hover for both EMA values. (a) is exact from TradingView; (b) approximated by lag equivalence (&asymp; EMA41, interpolated from EMA40/EMA50) since no source publishes double-smoothed series.
+    Trade plan: Buy Below = Close &minus; 1&times;ATR(14) &middot; Stop Loss = Close &minus; 2&times;ATR(14) &middot; Sell Target = Close + 2&times;ATR(14) (2:1 reward-to-risk vs stop).
+    *Est. Entry / Est. Target: trading days, estimated from <b>each stock's own price history</b> &mdash; its 14-day ATR volatility and 21-day drift speed &mdash; so a fast-moving stock shows shorter estimates than a slow one. Statistical, not guaranteed; re-run stale signals.
+    vs 52w High: distance below the 52-week peak (&le; &minus;15% highlighted as potential value entry). Vol Activity: today's volume vs 10-day average (&ge;1.5&times; flagged &mdash; unusual interest).
+    Dividends: yield &gt; 0; frequency estimated from annual&divide;quarterly dividends-per-share where not published (est.). Next Earnings: expected release per TradingView (TBA = unannounced).
+    Trend: &#9650; price above 50-day average with positive 1-month momentum &middot; &#9660; below with negative &middot; &#9670; mixed.
+    Upcoming Invest.: keyword scan of last 60 days of news for investment / expansion / contract announcements &mdash; click through and verify before acting.
   </div>
 </div>
 
@@ -153,8 +156,44 @@ const COLS = ['name','description','close','change','volume','market_cap_basic',
               'price_earnings_ttm','dividends_yield_current','RSI','Recommend.All',
               'sector','type','ATR'];
 const EXT_COLS = ['SMA50','Perf.1M','dividends_per_share_fy','dividends_per_share_fq',
-                  'dividend_frequency','earnings_release_next_date'];
-const ALLOC = {1: 50, 2: 20, 3: 15, 4: 10, 5: 5};
+                  'dividend_frequency','earnings_release_next_date',
+                  'price_52_week_high','price_52_week_low','relative_volume_10d_calc',
+                  'EMA21','EMA40','EMA50'];
+// Dynamic allocation: proportional to opp-score^3 over the top 5, cap 50%, floor 3%, total 100%
+function allocate(list) {
+  if (!list.length) return [];
+  const w = list.map(s => Math.pow(Math.max(s.opp || 1, 1), 3));
+  const sum = w.reduce((a, b) => a + b, 0);
+  const pct = w.map(x => x / sum * 100);
+  for (let iter = 0; iter < 3; iter++) {           // cap 50, redistribute
+    let excess = 0; const un = [];
+    pct.forEach((p, i) => { if (p > 50) { excess += p - 50; pct[i] = 50; } else un.push(i); });
+    if (!excess || !un.length) break;
+    const usum = un.reduce((a, i) => a + pct[i], 0) || 1;
+    un.forEach(i => pct[i] += excess * pct[i] / usum);
+  }
+  pct.forEach((p, i) => {                           // floor 3%
+    if (p < 3) {
+      const need = 3 - p; pct[i] = 3;
+      const big = pct.indexOf(Math.max(...pct)); pct[big] -= need;
+    }
+  });
+  const fl = pct.map(p => Math.floor(p));           // round, keep sum 100
+  let rem = 100 - fl.reduce((a, b) => a + b, 0);
+  const order = pct.map((p, i) => [p - fl[i], i]).sort((a, b) => b[0] - a[0]);
+  for (let k = 0; k < rem; k++) fl[order[k % order.length][1]]++;
+  return fl;
+}
+
+// EMA delta: a = EMA21(close), exact from the data source; b = EMA(a) approximated via lag
+// equivalence (EMA of EMA21 ~ EMA41, interpolated between EMA40 and EMA50).
+// Shown as the latest-day difference (a - b) in SAR. Positive = uptrend, negative = downtrend.
+function emaDelta(s) {
+  if (s.EMA21 == null || s.EMA40 == null || s.EMA50 == null) return null;
+  const a = s.EMA21;
+  const b = s.EMA40 + 0.1 * (s.EMA50 - s.EMA40);
+  return {a, b, diff: a - b};
+}
 const $ = id => document.getElementById(id);
 const fmt = (v, d = 2) => v == null ? '—' : v.toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
 const cls = v => v > 0 ? 'pos' : v < 0 ? 'neg' : '';
@@ -225,12 +264,16 @@ function renderKPIs(stocks) {
   const medPE = pes.length ? pes[Math.floor(pes.length / 2)] : null;
   const dys = stocks.map(s => s.dividends_yield_current).filter(v => v > 0);
   const avgDY = dys.length ? dys.reduce((a, b) => a + b, 0) / dys.length : null;
+  const hi52 = stocks.filter(s => s.price_52_week_high > 0 && s.close >= s.price_52_week_high * 0.995).length;
+  const lo52 = stocks.filter(s => s.price_52_week_low > 0 && s.close <= s.price_52_week_low * 1.005).length;
   const tiles = [
     ['Listed stocks', stocks.length, ''],
     ['Advancers / decliners', adv + ' / ' + dec, 'breadth ' + (dec ? (adv / dec).toFixed(2) : '—')],
     ['Total market cap', 'SAR ' + (mcap / 1e12).toFixed(2) + 'tn', 'incl. Aramco'],
     ['Median P/E (TTM)', medPE ? medPE.toFixed(1) : '—', 'profitable companies'],
     ['Avg dividend yield', avgDY ? avgDY.toFixed(2) + '%' : '—', 'yielding stocks only'],
+    ['At 52-week highs', hi52, 'within 0.5% of peak'],
+    ['At 52-week lows', lo52, 'within 0.5% of trough'],
   ];
   $('kpis').innerHTML = tiles.map(([l, v, d]) =>
     `<div class="card tile"><div class="label">${l}</div><div class="value">${v}</div><div class="delta">${d}</div></div>`).join('');
@@ -254,6 +297,25 @@ function renderRatings(stocks) {
     `<svg viewBox="0 0 100 22" width="100%" height="30" preserveAspectRatio="none">${segs}</svg>
      <div class="legend">${buckets.map((b, i) =>
        `<span class="key"><span class="swatch" style="background:${colors[i]}"></span>${b} · ${counts[i]}</span>`).join('')}</div>`;
+}
+
+function renderMovers(stocks) {
+  const active = stocks.filter(s => s.change != null && s.close && s.volume && s.close * s.volume >= 5e5);
+  const sorted = [...active].sort((a, b) => b.change - a.change);
+  const gain = sorted.slice(0, 3), lose = sorted.slice(-3).reverse();
+  const row = s => {
+    const rvol = s.relative_volume_10d_calc;
+    return `<tr>
+      <td><b>${s.name}</b></td>
+      <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis">${s.description}</td>
+      <td class="num ${cls(s.change)}">${(s.change > 0 ? '+' : '') + s.change.toFixed(2)}%</td>
+      <td class="num">${fmt(s.close)}</td>
+      <td class="num ${rvol >= 1.5 ? 'pos' : ''}">${rvol == null ? '—' : rvol.toFixed(1) + '× vol'}</td>
+    </tr>`;
+  };
+  $('movers').innerHTML = `<table>
+    <thead><tr><th>Ticker</th><th>Company</th><th class="num">Chg %</th><th class="num">Close</th><th class="num">Activity</th></tr></thead>
+    <tbody>${gain.map(row).join('')}${lose.map(row).join('')}</tbody></table>`;
 }
 
 function renderSectors(stocks) {
@@ -290,30 +352,75 @@ function renderSectors(stocks) {
        ${svgRows}</svg>`;
 }
 
-function renderTop20(stocks) {
+function pctRank(sorted, v) {
+  if (v == null || !sorted.length) return null;
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; sorted[m] < v ? lo = m + 1 : hi = m; }
+  return lo / sorted.length;
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+function computeOpportunity(stocks) {
   const liquid = stocks.filter(s =>
     s['Recommend.All'] != null && s.close && s.volume && s.close * s.volume >= 1e6);
-  liquid.sort((a, b) =>
-    (b['Recommend.All'] - a['Recommend.All']) || (b.close * b.volume - a.close * a.volume));
+  const pes = liquid.map(s => s.price_earnings_ttm).filter(v => v > 0).sort((a, b) => a - b);
+  const dys = liquid.map(s => s.dividends_yield_current).filter(v => v != null).sort((a, b) => a - b);
+  const vts = liquid.map(s => s.close * s.volume).sort((a, b) => a - b);
+  liquid.forEach(s => {
+    const tech = (s['Recommend.All'] + 1) / 2;                               // 0..1
+    const trendF = (s.SMA50 != null && s.close > s.SMA50) ? 1 : 0;
+    const mom = clamp(s['Perf.1M'] ?? 0, -10, 10) / 20 + 0.5;                // 0..1
+    const peP = s.price_earnings_ttm > 0 ? 1 - pctRank(pes, s.price_earnings_ttm) : 0.4;  // cheap = high
+    const dyP = s.dividends_yield_current > 0 ? pctRank(dys, s.dividends_yield_current) : 0;
+    const rsiFit = s.RSI != null ? clamp(1 - Math.abs(s.RSI - 55) / 45, 0, 1) : 0.5;      // sweet spot 40-65
+    const liqP = pctRank(vts, s.close * s.volume);
+    s.opp = Math.round(100 * (0.30 * tech + 0.15 * (trendF + mom) / 2 +
+                              0.15 * peP + 0.10 * dyP + 0.15 * rsiFit + 0.15 * liqP));
+  });
+  return liquid;
+}
+
+// Timing from each stock's own history: ATR(14) volatility + 21-day drift
+function timing(s) {
+  const atr = s.ATR || s.close * 0.02;
+  const drift = Math.abs(s['Perf.1M'] ?? 0) / 100 * s.close / 21;  // SAR/day net move, last month
+  const speed = 0.3 * atr + drift;                                  // effective daily approach speed
+  return {
+    entry: clamp(Math.round(atr / speed), 1, 15),
+    target: clamp(Math.round(3 * atr / speed), 3, 40)
+  };
+}
+
+function renderTop20(stocks) {
+  const liquid = computeOpportunity(stocks);
+  liquid.sort((a, b) => (b.opp - a.opp) || (b.close * b.volume - a.close * a.volume));
   const top = liquid.slice(0, 20);
+  const allocPct = allocate(top.slice(0, 5));
   $('top20').querySelector('tbody').innerHTML = top.map((s, i) => {
     const rank = i + 1, atr = s.ATR || 0;
-    const buy = s.close - atr, sell = s.close + 2 * atr;
+    const buy = s.close - atr, sell = s.close + 2 * atr, stop = s.close - 2 * atr;
+    const t = timing(s);
+    const off52 = s.price_52_week_high > 0 ? (s.close / s.price_52_week_high - 1) * 100 : null;
+    const rvol = s.relative_volume_10d_calc;
+    const ed = emaDelta(s);
+    const chartLink = `https://www.tradingview.com/chart/?symbol=TADAWUL%3A${s.name}`;
     return `<tr class="${rank <= 5 ? 'alloc' : ''}">
       <td class="num"><b>${rank}</b></td>
-      <td><b>${s.name}</b></td><td>${s.description}</td>
+      <td><a href="${chartLink}" target="_blank" rel="noopener"><b>${s.name}</b></a></td><td>${s.description}</td>
       <td class="${trendWord(s)[1]}">${trendWord(s)[0]}</td>
       <td class="num">${fmt(s.close)}</td>
       <td class="num ${cls(s.change)}">${s.change == null ? '—' : (s.change > 0 ? '+' : '') + s.change.toFixed(2) + '%'}</td>
-      <td class="num">${s['Recommend.All'].toFixed(3)}</td>
-      <td class="num">${ALLOC[rank] ? '<b>' + ALLOC[rank] + '%</b>' : '—'}</td>
-      <td class="num">${fmt(buy)}</td><td class="num">${fmt(sell)}</td>
-      <td>2–5 days</td><td>6–15 days</td>
+      <td class="num ${ed ? cls(ed.diff) : ''}" data-tip="${ed ? 'EMA21(close) = ' + ed.a.toFixed(2) + ' · EMA of that EMA ≈ ' + ed.b.toFixed(2) + ' · difference = ' + ed.diff.toFixed(3) + ' SAR (latest day)' : 'EMA data unavailable'}">${ed == null ? '—' : (ed.diff > 0 ? '+' : '') + ed.diff.toFixed(2)}</td>
+      <td class="num" data-tip="Composite: 30% technical rating, 15% trend+momentum, 15% valuation, 10% yield, 15% RSI positioning, 15% liquidity"><b>${s.opp}</b>/100</td>
+      <td class="num">${rank <= 5 ? '<b>' + allocPct[i] + '%</b>' : '—'}</td>
+      <td class="num">${fmt(buy)}</td><td class="num">${fmt(stop)}</td><td class="num">${fmt(sell)}</td>
+      <td class="num">~${t.entry}d</td><td class="num">~${t.target}d</td>
+      <td class="num ${off52 != null && off52 <= -15 ? 'pos' : ''}">${off52 == null ? '—' : off52.toFixed(1) + '%'}</td>
+      <td class="num ${rvol >= 1.5 ? 'pos' : ''}">${rvol == null ? '—' : (rvol >= 1.5 ? '🔥 ' : '') + rvol.toFixed(1) + '×'}</td>
       <td class="num">${(s.dividends_yield_current > 0 || s.dividends_per_share_fy > 0) ? 'Yes · ' + (s.dividends_yield_current || 0).toFixed(2) + '%' : 'No'}</td>
       <td>${freqWord(s)}</td>
       <td>${earnDate(s.earnings_release_next_date)}</td>
       <td id="inv-${s.name}"><a href="https://www.tradingview.com/symbols/TADAWUL-${s.name}/news/" target="_blank" rel="noopener">scanning&hellip;</a></td>
-      <td id="invt-${s.name}" style="max-width:230px;overflow:hidden;text-overflow:ellipsis">&hellip;</td>
     </tr>`;
   }).join('');
   scanInvestments(top);
@@ -323,7 +430,7 @@ const INV_KW = /invest|expansion|expand|project|contract|award|acquisi|acquire|c
 
 async function scanInvestments(top) {
   await Promise.allSettled(top.map(async s => {
-    const cell = $('inv-' + s.name), tcell = $('invt-' + s.name);
+    const cell = $('inv-' + s.name);
     if (!cell) return;
     const link = `https://www.tradingview.com/symbols/TADAWUL-${s.name}/news/`;
     try {
@@ -341,21 +448,10 @@ async function scanInvestments(top) {
         .filter(it => it.ts > cutoff && INV_KW.test(it.title))
         .sort((a, b) => b.ts - a.ts);
       cell.innerHTML = hits.length
-        ? `<a href="${link}" target="_blank" rel="noopener" class="pos">Yes &middot; ${hits.length} news</a>`
+        ? `<a href="${link}" target="_blank" rel="noopener" class="pos" data-tip="${(hits[0].title || '').replace(/"/g, '&quot;')}">Yes &middot; ${hits.length} news</a>`
         : `<a href="${link}" target="_blank" rel="noopener" style="color:var(--muted)">None found</a>`;
-      if (tcell) {
-        if (hits.length) {
-          const h = hits[0];
-          const d = new Date(h.ts).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'});
-          const short = h.title.length > 60 ? h.title.slice(0, 58) + '…' : h.title;
-          tcell.innerHTML = `<a href="${link}" target="_blank" rel="noopener" data-tip="${h.title.replace(/"/g, '&quot;')} (${d})" style="color:inherit">${short} <span style="color:var(--muted)">&middot; ${d}</span></a>`;
-        } else {
-          tcell.textContent = '—';
-        }
-      }
     } catch (e) {
       cell.innerHTML = `<a href="${link}" target="_blank" rel="noopener">Check news &rarr;</a>`;
-      if (tcell) tcell.innerHTML = `<a href="${link}" target="_blank" rel="noopener">Check news &rarr;</a>`;
     }
   }));
 }
@@ -434,6 +530,7 @@ async function loadAll() {
     renderKPIs(stocks);
     renderRatings(stocks);
     renderSectors(stocks);
+    renderMovers(stocks);
     renderTop20(stocks);
     $('updated').textContent = 'Updated ' + new Date().toLocaleString('en-GB',
       {timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short'}) + ' (Riyadh)';
