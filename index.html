@@ -82,6 +82,7 @@
     position: fixed; display: none; pointer-events: none; z-index: 10;
     background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
     padding: 7px 10px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+    white-space: pre-line; line-height: 1.5; max-width: 290px;
   }
   footer { margin-top: 22px; font-size: 12px; color: var(--muted); line-height: 1.6; }
   a { color: var(--series-1); }
@@ -112,6 +113,19 @@
     <div id="ratings"></div>
     <h2 style="margin-top:18px">Sector performance today (cap-weighted % change)</h2>
     <div id="sectors"></div>
+  </div>
+</div>
+
+<div class="grid two-col" style="margin-top:14px">
+  <div class="card">
+    <h2>Top 10 by Traded Value Today (SAR)</h2>
+    <div id="topvalue"></div>
+    <div class="note">Traded value = today's close price &times; today's volume, a same-day proxy for where the most money is changing hands. Hover a bar for the company name and exact value.</div>
+  </div>
+  <div class="card">
+    <h2>Top 10 by Volume Today (shares traded)</h2>
+    <div id="topvol"></div>
+    <div class="note">Raw number of shares traded today &mdash; high volume can reflect either strong conviction or simply a low share price. Hover a bar for the company name and exact count.</div>
   </div>
 </div>
 
@@ -327,7 +341,10 @@ function renderSectors(stocks) {
   const rows = Object.entries(by).map(([sec, arr]) => {
     const w = arr.reduce((a, s) => a + s.market_cap_basic, 0);
     const chg = arr.reduce((a, s) => a + s.change * s.market_cap_basic, 0) / w;
-    return {sec, chg, n: arr.length};
+    const top5 = [...arr]
+      .sort((a, b) => Math.abs(b.change * b.market_cap_basic) - Math.abs(a.change * a.market_cap_basic))
+      .slice(0, 5);
+    return {sec, chg, n: arr.length, top5};
   }).sort((a, b) => b.chg - a.chg);
   const maxAbs = Math.max(...rows.map(r => Math.abs(r.chg)), 0.1);
   const RH = 24, LW = 150, PW = 420, mid = LW + (PW - LW) / 2;
@@ -340,7 +357,13 @@ function renderSectors(stocks) {
     const color = r.chg >= 0 ? 'var(--series-1)' : 'var(--series-8)';
     const lblX = r.chg >= 0 ? mid + w + 5 : mid - w - 5;
     const anchor = r.chg >= 0 ? 'start' : 'end';
-    return `<g class="bar-row" data-tip="${r.sec}: ${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}% (${r.n} stocks, cap-weighted)">
+    const contribLines = r.top5.map(s => {
+      const nm = (s.description || '').length > 24 ? s.description.slice(0, 23) + '…' : (s.description || '');
+      return `${s.name} ${nm}  ${s.change >= 0 ? '+' : ''}${s.change.toFixed(2)}%`;
+    }).join('\n');
+    const tip = `${r.sec}: ${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}% (${r.n} stocks, cap-weighted)\nTop 5 contributors:\n${contribLines}`
+      .replace(/"/g, '&quot;');
+    return `<g class="bar-row" data-tip="${tip}">
       <text x="${LW - 8}" y="${y + 12}" text-anchor="end" font-size="11.5" fill="var(--text-secondary)">${r.sec.length > 21 ? r.sec.slice(0, 20) + '…' : r.sec}</text>
       <rect x="${x0}" y="${y}" width="${Math.max(w, 0.5)}" height="15" rx="2" fill="${color}"></rect>
       <text x="${lblX}" y="${y + 12}" text-anchor="${anchor}" font-size="11" fill="var(--muted)">${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}%</text>
@@ -350,6 +373,64 @@ function renderSectors(stocks) {
     `<svg viewBox="0 0 ${PW + 55} ${H}" width="100%" style="max-width:640px">
        <line x1="${mid}" y1="0" x2="${mid}" y2="${H}" stroke="var(--baseline)" stroke-width="1"></line>
        ${svgRows}</svg>`;
+}
+
+function trunc(s, n) { s = s || ''; return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function fmtSAR(v) {
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + 'bn';
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'mn';
+  if (v >= 1e3) return (v / 1e3).toFixed(0) + 'k';
+  return Math.round(v).toLocaleString('en-US');
+}
+function fmtVol(v) {
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+  return Math.round(v).toLocaleString('en-US');
+}
+
+function renderBarChart(containerId, items, color = 'var(--series-1)') {
+  const RH = 24, LW = 60, PW = 420;
+  const H = items.length * RH + 8;
+  const maxV = Math.max(...items.map(i => i.v), 1);
+  const svgRows = items.map((it, i) => {
+    const y = i * RH + 4;
+    const w = (it.v / maxV) * (PW - LW - 70);
+    return `<g class="bar-row" data-tip="${it.tip}">
+      <text x="${LW - 8}" y="${y + 12}" text-anchor="end" font-size="11.5" fill="var(--text-secondary)">${it.label}</text>
+      <rect x="${LW}" y="${y}" width="${Math.max(w, 0.5)}" height="15" rx="2" fill="${color}"></rect>
+      <text x="${LW + w + 6}" y="${y + 12}" font-size="11" fill="var(--muted)">${it.valueLabel}</text>
+    </g>`;
+  }).join('');
+  $(containerId).innerHTML = `<svg viewBox="0 0 ${PW + 55} ${H}" width="100%" style="max-width:640px">${svgRows}</svg>`;
+}
+
+function renderTopValue(stocks) {
+  const items = stocks
+    .filter(s => s.close && s.volume)
+    .map(s => ({s, v: s.close * s.volume}))
+    .sort((a, b) => b.v - a.v)
+    .slice(0, 10)
+    .map(({s, v}) => ({
+      label: s.name,
+      v,
+      valueLabel: 'SAR ' + fmtSAR(v),
+      tip: `${s.name} ${trunc(s.description, 28)}\nTraded value today: SAR ${v.toLocaleString('en-US', {maximumFractionDigits: 0})}`.replace(/"/g, '&quot;')
+    }));
+  renderBarChart('topvalue', items);
+}
+
+function renderTopVolume(stocks) {
+  const items = stocks
+    .filter(s => s.volume)
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 10)
+    .map(s => ({
+      label: s.name,
+      v: s.volume,
+      valueLabel: fmtVol(s.volume) + ' sh',
+      tip: `${s.name} ${trunc(s.description, 28)}\nVolume today: ${Math.round(s.volume).toLocaleString('en-US')} shares`.replace(/"/g, '&quot;')
+    }));
+  renderBarChart('topvol', items, 'var(--series-8)');
 }
 
 function pctRank(sorted, v) {
@@ -515,7 +596,7 @@ document.addEventListener('mousemove', e => {
   if (t) {
     tip.textContent = t.getAttribute('data-tip');
     tip.style.display = 'block';
-    tip.style.left = Math.min(e.clientX + 14, innerWidth - 240) + 'px';
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 300) + 'px';
     tip.style.top = (e.clientY + 14) + 'px';
   } else tip.style.display = 'none';
 });
@@ -530,6 +611,8 @@ async function loadAll() {
     renderKPIs(stocks);
     renderRatings(stocks);
     renderSectors(stocks);
+    renderTopValue(stocks);
+    renderTopVolume(stocks);
     renderMovers(stocks);
     renderTop20(stocks);
     $('updated').textContent = 'Updated ' + new Date().toLocaleString('en-GB',
