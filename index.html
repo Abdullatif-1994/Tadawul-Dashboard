@@ -134,7 +134,8 @@
   <div class="tbl-wrap"><table id="top20">
     <thead><tr>
       <th class="num">Rank</th><th>Ticker</th><th>Company</th><th>Trend</th>
-      <th class="num">Close</th><th class="num">Chg %</th><th class="num">EMA &Delta; (21)</th><th class="num">Opp Score</th>
+      <th class="num">Close</th><th class="num">Chg %</th><th class="num">vs TASI (1M)</th><th class="num">EMA &Delta; (21)</th><th class="num">Opp Score</th>
+      <th class="num">Signal Confidence</th>
       <th class="num">Alloc %</th><th class="num">Buy Below</th><th class="num">Stop Loss</th><th class="num">Sell Target</th>
       <th class="num">Est. Entry*</th><th class="num">Est. Target*</th>
       <th class="num">vs 52w High</th><th class="num">Vol Activity</th>
@@ -143,7 +144,9 @@
     <tbody></tbody>
   </table></div>
   <div class="note">
-    <b>Opportunity Score /100</b> (ranking basis): 30% TradingView technical rating + 15% trend &amp; momentum (price vs 50-day average, 1-month performance) + 15% valuation (P/E vs the whole market, cheaper = higher) + 10% dividend yield + 15% RSI positioning (sweet spot 40&ndash;65: room to rise, not overheated) + 15% liquidity. A blended score keeps the ranking useful in all market conditions &mdash; pure momentum tops out in rallies, pure value tops out in sell-offs.
+    <b>Opportunity Score /100</b> (ranking basis): 25% TradingView technical rating + 15% trend &amp; momentum (price vs 50-day average, 1-month performance) + 10% multi-timeframe agreement (do 1-week/1-month/3-month performance all point the same way) + 15% relative strength (vs TASI and vs its own sector, 1-month) + 10% valuation (P/E vs the whole market, cheaper = higher) + 10% dividend yield + 10% RSI positioning (sweet spot 40&ndash;65: room to rise, not overheated) + 5% liquidity. A blended score keeps the ranking useful in all market conditions &mdash; pure momentum tops out in rallies, pure value tops out in sell-offs.
+    <b>vs TASI (1M)</b>: the stock's 1-month performance minus TASI's 1-month performance, in percentage points. Positive = beating the market over that window.
+    <b>Signal Confidence</b>: the % of 7 independent bullish checks (technical rating, trend, multi-timeframe momentum agreement, relative strength vs TASI, relative strength vs sector, healthy RSI, EMA trend) that currently agree for that stock &mdash; High &ge;70%, Medium 40&ndash;69%, Low &lt;40%. Hover a value to see exactly which checks passed. <b>This measures how consistent the current signals are with each other, not a prediction of future returns or a probability of profit</b> &mdash; no model, including this one, can be highly certain about where an individual stock is headed. Treat higher confidence as "a cleaner, more coherent setup," not as a guarantee.
     Allocation: <b>dynamic</b> &mdash; proportional to the cube of each stock's Opportunity Score across the top 5 (a clearly stronger setup earns a larger share; near-equal scores split near-equally), capped at 50% per name, floored at 3%, total 100%.
     EMA &Delta; (21): the latest-day difference (SAR) between (a) the 21-day EMA of daily close prices and (b) the EMA of that EMA. Both use daily data as of the last session. Positive = uptrend, negative = downtrend. Hover for both EMA values. (a) is exact from TradingView; (b) approximated by lag equivalence (&asymp; EMA41, interpolated from EMA40/EMA50) since no source publishes double-smoothed series.
     Trade plan: Buy Below = Close &minus; 1&times;ATR(14) &middot; Stop Loss = Close &minus; 2&times;ATR(14) &middot; Sell Target = Close + 2&times;ATR(14) (2:1 reward-to-risk vs stop).
@@ -169,7 +172,7 @@ const SCAN_URL = 'https://scanner.tradingview.com/ksa/scan?label-product=screene
 const COLS = ['name','description','close','change','volume','market_cap_basic',
               'price_earnings_ttm','dividends_yield_current','RSI','Recommend.All',
               'sector','type','ATR'];
-const EXT_COLS = ['SMA50','Perf.1M','dividends_per_share_fy','dividends_per_share_fq',
+const EXT_COLS = ['SMA50','Perf.W','Perf.1M','Perf.3M','dividends_per_share_fy','dividends_per_share_fq',
                   'dividend_frequency','earnings_release_next_date',
                   'price_52_week_high','price_52_week_low','relative_volume_10d_calc',
                   'EMA21','EMA40','EMA50'];
@@ -441,22 +444,84 @@ function pctRank(sorted, v) {
 }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-function computeOpportunity(stocks) {
+function computeOpportunity(stocks, tasi1M) {
   const liquid = stocks.filter(s =>
     s['Recommend.All'] != null && s.close && s.volume && s.close * s.volume >= 1e6);
   const pes = liquid.map(s => s.price_earnings_ttm).filter(v => v > 0).sort((a, b) => a - b);
   const dys = liquid.map(s => s.dividends_yield_current).filter(v => v != null).sort((a, b) => a - b);
   const vts = liquid.map(s => s.close * s.volume).sort((a, b) => a - b);
+
+  // Cap-weighted sector average 1-month performance, for relative-strength-vs-sector
+  const sectorAgg = {};
+  liquid.forEach(s => {
+    if (s.sector == null || s['Perf.1M'] == null || !s.market_cap_basic) return;
+    const a = sectorAgg[s.sector] || (sectorAgg[s.sector] = {sum: 0, w: 0});
+    a.sum += s['Perf.1M'] * s.market_cap_basic;
+    a.w += s.market_cap_basic;
+  });
+  const sectorPerf1M = {};
+  Object.keys(sectorAgg).forEach(k => sectorPerf1M[k] = sectorAgg[k].sum / sectorAgg[k].w);
+
+  const rsVals = liquid.map(s => (s['Perf.1M'] != null && tasi1M != null) ? s['Perf.1M'] - tasi1M : null)
+                        .filter(v => v != null).sort((a, b) => a - b);
+
   liquid.forEach(s => {
     const tech = (s['Recommend.All'] + 1) / 2;                               // 0..1
     const trendF = (s.SMA50 != null && s.close > s.SMA50) ? 1 : 0;
     const mom = clamp(s['Perf.1M'] ?? 0, -10, 10) / 20 + 0.5;                // 0..1
+
+    // Multi-timeframe momentum agreement: fraction of {1W,1M,3M} sharing 1M's direction
+    const perfs = [s['Perf.W'], s['Perf.1M'], s['Perf.3M']];
+    const known = perfs.filter(v => v != null);
+    let mtfAgree = 0.5;
+    if (known.length >= 2 && s['Perf.1M'] != null) {
+      const sign1m = Math.sign(s['Perf.1M']);
+      mtfAgree = known.filter(v => Math.sign(v) === sign1m).length / known.length;
+    }
+
+    // Relative strength vs TASI and vs sector (1-month), each 0..1 via percentile/clamp
+    const rsTasi1M = (s['Perf.1M'] != null && tasi1M != null) ? s['Perf.1M'] - tasi1M : null;
+    const rsTasi = rsTasi1M != null ? pctRank(rsVals, rsTasi1M) : 0.5;
+    const secAvg = sectorPerf1M[s.sector];
+    const rsSector = (s['Perf.1M'] != null && secAvg != null) ? clamp(0.5 + (s['Perf.1M'] - secAvg) / 20, 0, 1) : 0.5;
+    const relStrength = (rsTasi + rsSector) / 2;
+
     const peP = s.price_earnings_ttm > 0 ? 1 - pctRank(pes, s.price_earnings_ttm) : 0.4;  // cheap = high
     const dyP = s.dividends_yield_current > 0 ? pctRank(dys, s.dividends_yield_current) : 0;
     const rsiFit = s.RSI != null ? clamp(1 - Math.abs(s.RSI - 55) / 45, 0, 1) : 0.5;      // sweet spot 40-65
     const liqP = pctRank(vts, s.close * s.volume);
-    s.opp = Math.round(100 * (0.30 * tech + 0.15 * (trendF + mom) / 2 +
-                              0.15 * peP + 0.10 * dyP + 0.15 * rsiFit + 0.15 * liqP));
+
+    s.opp = Math.round(100 * (
+      0.25 * tech +
+      0.15 * (trendF + mom) / 2 +
+      0.10 * mtfAgree +
+      0.15 * relStrength +
+      0.10 * peP +
+      0.10 * dyP +
+      0.10 * rsiFit +
+      0.05 * liqP
+    ));
+    s.rsTasi1M = rsTasi1M;
+
+    // Signal Confidence: fraction of independent bullish checks that agree (0-100%).
+    // This measures how COHERENT the current signal set is and how COMPLETE the data
+    // is - missing data simply fails a check, no credit either way. It is NOT a
+    // prediction of future returns or a probability of profit.
+    const ed = emaDelta(s);
+    const checkDefs = [
+      ['Technical rating Buy or better', s['Recommend.All'] >= 0.1],
+      ['Price above its 50-day average', trendF === 1],
+      ['1W / 1M / 3M momentum all aligned', known.length === 3 && mtfAgree === 1],
+      ['Outperforming TASI (1M)', rsTasi1M != null && rsTasi1M > 0],
+      ['Outperforming its sector (1M)', s['Perf.1M'] != null && secAvg != null && s['Perf.1M'] > secAvg],
+      ['RSI in healthy range (35-70)', s.RSI != null && s.RSI >= 35 && s.RSI <= 70],
+      ['EMA21 above its own trend line', ed != null && ed.diff > 0],
+    ];
+    const passed = checkDefs.filter(c => c[1]).length;
+    s.confidence = Math.round(100 * passed / checkDefs.length);
+    s.confidenceTip = ('Signal Confidence: ' + s.confidence + '% (' + passed + '/' + checkDefs.length + ' checks agree)\n' +
+      checkDefs.map(c => (c[1] ? '✓ ' : '✗ ') + c[0]).join('\n') +
+      '\nMeasures how consistent the signals are - not a prediction of future returns.').replace(/"/g, '&quot;');
   });
   return liquid;
 }
@@ -472,8 +537,8 @@ function timing(s) {
   };
 }
 
-function renderTop20(stocks) {
-  const liquid = computeOpportunity(stocks);
+function renderTop20(stocks, tasi1M) {
+  const liquid = computeOpportunity(stocks, tasi1M);
   liquid.sort((a, b) => (b.opp - a.opp) || (b.close * b.volume - a.close * a.volume));
   const top = liquid.slice(0, 20);
   const allocPct = allocate(top.slice(0, 5));
@@ -485,14 +550,18 @@ function renderTop20(stocks) {
     const rvol = s.relative_volume_10d_calc;
     const ed = emaDelta(s);
     const chartLink = `https://www.tradingview.com/chart/?symbol=TADAWUL%3A${s.name}`;
+    const confWord = s.confidence >= 70 ? 'High' : s.confidence >= 40 ? 'Medium' : 'Low';
+    const confCls = s.confidence >= 70 ? 'pos' : s.confidence >= 40 ? '' : 'neg';
     return `<tr class="${rank <= 5 ? 'alloc' : ''}">
       <td class="num"><b>${rank}</b></td>
       <td><a href="${chartLink}" target="_blank" rel="noopener"><b>${s.name}</b></a></td><td>${s.description}</td>
       <td class="${trendWord(s)[1]}">${trendWord(s)[0]}</td>
       <td class="num">${fmt(s.close)}</td>
       <td class="num ${cls(s.change)}">${s.change == null ? '—' : (s.change > 0 ? '+' : '') + s.change.toFixed(2) + '%'}</td>
+      <td class="num ${cls(s.rsTasi1M)}" data-tip="1-month performance vs TASI index. Positive = outperforming the market.">${s.rsTasi1M == null ? '—' : (s.rsTasi1M > 0 ? '+' : '') + s.rsTasi1M.toFixed(2) + 'pp'}</td>
       <td class="num ${ed ? cls(ed.diff) : ''}" data-tip="${ed ? 'EMA21(close) = ' + ed.a.toFixed(2) + ' · EMA of that EMA ≈ ' + ed.b.toFixed(2) + ' · difference = ' + ed.diff.toFixed(3) + ' SAR (latest day)' : 'EMA data unavailable'}">${ed == null ? '—' : (ed.diff > 0 ? '+' : '') + ed.diff.toFixed(2)}</td>
-      <td class="num" data-tip="Composite: 30% technical rating, 15% trend+momentum, 15% valuation, 10% yield, 15% RSI positioning, 15% liquidity"><b>${s.opp}</b>/100</td>
+      <td class="num" data-tip="Composite: 25% technical rating, 15% trend+momentum, 10% multi-timeframe agreement, 15% relative strength (vs TASI + sector), 10% valuation, 10% yield, 10% RSI positioning, 5% liquidity"><b>${s.opp}</b>/100</td>
+      <td class="num ${confCls}" data-tip="${s.confidenceTip}">${confWord} · ${s.confidence}%</td>
       <td class="num">${rank <= 5 ? '<b>' + allocPct[i] + '%</b>' : '—'}</td>
       <td class="num">${fmt(buy)}</td><td class="num">${fmt(stop)}</td><td class="num">${fmt(sell)}</td>
       <td class="num">~${t.entry}d</td><td class="num">~${t.target}d</td>
@@ -614,7 +683,7 @@ async function loadAll() {
     renderTopValue(stocks);
     renderTopVolume(stocks);
     renderMovers(stocks);
-    renderTop20(stocks);
+    renderTop20(stocks, tasi[4]);  // tasi[4] = TASI's own 1-month performance (Perf.1M)
     $('updated').textContent = 'Updated ' + new Date().toLocaleString('en-GB',
       {timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short'}) + ' (Riyadh)';
   } catch (e) {
