@@ -277,20 +277,10 @@ function renderKPIs(stocks) {
   const adv = stocks.filter(s => s.change > 0).length;
   const dec = stocks.filter(s => s.change < 0).length;
   const mcap = stocks.reduce((a, s) => a + (s.market_cap_basic || 0), 0);
-  const pes = stocks.map(s => s.price_earnings_ttm).filter(v => v != null).sort((a, b) => a - b);
-  const medPE = pes.length ? pes[Math.floor(pes.length / 2)] : null;
-  const dys = stocks.map(s => s.dividends_yield_current).filter(v => v > 0);
-  const avgDY = dys.length ? dys.reduce((a, b) => a + b, 0) / dys.length : null;
-  const hi52 = stocks.filter(s => s.price_52_week_high > 0 && s.close >= s.price_52_week_high * 0.995).length;
-  const lo52 = stocks.filter(s => s.price_52_week_low > 0 && s.close <= s.price_52_week_low * 1.005).length;
   const tiles = [
     ['Listed stocks', stocks.length, ''],
     ['Advancers / decliners', adv + ' / ' + dec, 'breadth ' + (dec ? (adv / dec).toFixed(2) : '—')],
     ['Total market cap', 'SAR ' + (mcap / 1e12).toFixed(2) + 'tn', 'incl. Aramco'],
-    ['Median P/E (TTM)', medPE ? medPE.toFixed(1) : '—', 'profitable companies'],
-    ['Avg dividend yield', avgDY ? avgDY.toFixed(2) + '%' : '—', 'yielding stocks only'],
-    ['At 52-week highs', hi52, 'within 0.5% of peak'],
-    ['At 52-week lows', lo52, 'within 0.5% of trough'],
   ];
   $('kpis').innerHTML = tiles.map(([l, v, d]) =>
     `<div class="card tile"><div class="label">${l}</div><div class="value">${v}</div><div class="delta">${d}</div></div>`).join('');
