@@ -134,24 +134,23 @@
   <div class="tbl-wrap"><table id="top20">
     <thead><tr>
       <th class="num">Rank</th><th>Ticker</th><th>Company</th><th>Trend</th>
-      <th class="num">Close</th><th class="num">Chg %</th><th class="num">vs TASI (1M)</th><th class="num">EMA &Delta; (21)</th><th class="num">Opp Score</th>
       <th class="num">Signal Confidence</th>
-      <th class="num">Alloc %</th><th class="num">Buy Below</th><th class="num">Stop Loss</th><th class="num">Sell Target</th>
+      <th class="num">Chg %</th><th class="num">EMA &Delta; (21)</th>
+      <th class="num">Alloc %</th><th class="num">Close</th><th class="num">Buy Below</th><th class="num">Stop Loss</th><th class="num">Sell Target</th>
       <th class="num">Est. Entry*</th><th class="num">Est. Target*</th>
-      <th class="num">vs 52w High</th><th class="num">Vol Activity</th>
+      <th class="num">Vol Activity</th>
       <th class="num">Dividends</th><th>Div Freq</th><th>Next Earnings</th><th>Upcoming Invest.</th>
     </tr></thead>
     <tbody></tbody>
   </table></div>
   <div class="note">
-    <b>Opportunity Score /100</b> (ranking basis): 25% TradingView technical rating + 15% trend &amp; momentum (price vs 50-day average, 1-month performance) + 10% multi-timeframe agreement (do 1-week/1-month/3-month performance all point the same way) + 15% relative strength (vs TASI and vs its own sector, 1-month) + 10% valuation (P/E vs the whole market, cheaper = higher) + 10% dividend yield + 10% RSI positioning (sweet spot 40&ndash;65: room to rise, not overheated) + 5% liquidity. A blended score keeps the ranking useful in all market conditions &mdash; pure momentum tops out in rallies, pure value tops out in sell-offs.
-    <b>vs TASI (1M)</b>: the stock's 1-month performance minus TASI's 1-month performance, in percentage points. Positive = beating the market over that window.
+    Ranking basis (Opportunity Score, not shown as a column but drives the order and Allocation %): 25% TradingView technical rating + 15% trend &amp; momentum (price vs 50-day average, 1-month performance) + 10% multi-timeframe agreement (do 1-week/1-month/3-month performance all point the same way) + 15% relative strength (vs TASI and vs its own sector, 1-month) + 10% valuation (P/E vs the whole market, cheaper = higher) + 10% dividend yield + 10% RSI positioning (sweet spot 40&ndash;65: room to rise, not overheated) + 5% liquidity. A blended score keeps the ranking useful in all market conditions &mdash; pure momentum tops out in rallies, pure value tops out in sell-offs.
     <b>Signal Confidence</b>: the % of 7 independent bullish checks (technical rating, trend, multi-timeframe momentum agreement, relative strength vs TASI, relative strength vs sector, healthy RSI, EMA trend) that currently agree for that stock &mdash; High &ge;70%, Medium 40&ndash;69%, Low &lt;40%. Hover a value to see exactly which checks passed. <b>This measures how consistent the current signals are with each other, not a prediction of future returns or a probability of profit</b> &mdash; no model, including this one, can be highly certain about where an individual stock is headed. Treat higher confidence as "a cleaner, more coherent setup," not as a guarantee.
     Allocation: <b>dynamic</b> &mdash; proportional to the cube of each stock's Opportunity Score across the top 5 (a clearly stronger setup earns a larger share; near-equal scores split near-equally), capped at 50% per name, floored at 3%, total 100%.
     EMA &Delta; (21): the latest-day difference (SAR) between (a) the 21-day EMA of daily close prices and (b) the EMA of that EMA. Both use daily data as of the last session. Positive = uptrend, negative = downtrend. Hover for both EMA values. (a) is exact from TradingView; (b) approximated by lag equivalence (&asymp; EMA41, interpolated from EMA40/EMA50) since no source publishes double-smoothed series.
     Trade plan: Buy Below = Close &minus; 1&times;ATR(14) &middot; Stop Loss = Close &minus; 2&times;ATR(14) &middot; Sell Target = Close + 2&times;ATR(14) (2:1 reward-to-risk vs stop).
     *Est. Entry / Est. Target: trading days, estimated from <b>each stock's own price history</b> &mdash; its 14-day ATR volatility and 21-day drift speed &mdash; so a fast-moving stock shows shorter estimates than a slow one. Statistical, not guaranteed; re-run stale signals.
-    vs 52w High: distance below the 52-week peak (&le; &minus;15% highlighted as potential value entry). Vol Activity: today's volume vs 10-day average (&ge;1.5&times; flagged &mdash; unusual interest).
+    Vol Activity: today's volume vs 10-day average (&ge;1.5&times; flagged &mdash; unusual interest).
     Dividends: yield &gt; 0; frequency estimated from annual&divide;quarterly dividends-per-share where not published (est.). Next Earnings: expected release per TradingView (TBA = unannounced).
     Trend: &#9650; price above 50-day average with positive 1-month momentum &middot; &#9660; below with negative &middot; &#9670; mixed.
     Upcoming Invest.: keyword scan of last 60 days of news for investment / expansion / contract announcements &mdash; click through and verify before acting.
@@ -536,7 +535,6 @@ function renderTop20(stocks, tasi1M) {
     const rank = i + 1, atr = s.ATR || 0;
     const buy = s.close - atr, sell = s.close + 2 * atr, stop = s.close - 2 * atr;
     const t = timing(s);
-    const off52 = s.price_52_week_high > 0 ? (s.close / s.price_52_week_high - 1) * 100 : null;
     const rvol = s.relative_volume_10d_calc;
     const ed = emaDelta(s);
     const chartLink = `https://www.tradingview.com/chart/?symbol=TADAWUL%3A${s.name}`;
@@ -546,16 +544,13 @@ function renderTop20(stocks, tasi1M) {
       <td class="num"><b>${rank}</b></td>
       <td><a href="${chartLink}" target="_blank" rel="noopener"><b>${s.name}</b></a></td><td>${s.description}</td>
       <td class="${trendWord(s)[1]}">${trendWord(s)[0]}</td>
-      <td class="num">${fmt(s.close)}</td>
-      <td class="num ${cls(s.change)}">${s.change == null ? '—' : (s.change > 0 ? '+' : '') + s.change.toFixed(2) + '%'}</td>
-      <td class="num ${cls(s.rsTasi1M)}" data-tip="1-month performance vs TASI index. Positive = outperforming the market.">${s.rsTasi1M == null ? '—' : (s.rsTasi1M > 0 ? '+' : '') + s.rsTasi1M.toFixed(2) + 'pp'}</td>
-      <td class="num ${ed ? cls(ed.diff) : ''}" data-tip="${ed ? 'EMA21(close) = ' + ed.a.toFixed(2) + ' · EMA of that EMA ≈ ' + ed.b.toFixed(2) + ' · difference = ' + ed.diff.toFixed(3) + ' SAR (latest day)' : 'EMA data unavailable'}">${ed == null ? '—' : (ed.diff > 0 ? '+' : '') + ed.diff.toFixed(2)}</td>
-      <td class="num" data-tip="Composite: 25% technical rating, 15% trend+momentum, 10% multi-timeframe agreement, 15% relative strength (vs TASI + sector), 10% valuation, 10% yield, 10% RSI positioning, 5% liquidity"><b>${s.opp}</b>/100</td>
       <td class="num ${confCls}" data-tip="${s.confidenceTip}">${confWord} · ${s.confidence}%</td>
+      <td class="num ${cls(s.change)}">${s.change == null ? '—' : (s.change > 0 ? '+' : '') + s.change.toFixed(2) + '%'}</td>
+      <td class="num ${ed ? cls(ed.diff) : ''}" data-tip="${ed ? 'EMA21(close) = ' + ed.a.toFixed(2) + ' · EMA of that EMA ≈ ' + ed.b.toFixed(2) + ' · difference = ' + ed.diff.toFixed(3) + ' SAR (latest day)' : 'EMA data unavailable'}">${ed == null ? '—' : (ed.diff > 0 ? '+' : '') + ed.diff.toFixed(2)}</td>
       <td class="num">${rank <= 5 ? '<b>' + allocPct[i] + '%</b>' : '—'}</td>
+      <td class="num">${fmt(s.close)}</td>
       <td class="num">${fmt(buy)}</td><td class="num">${fmt(stop)}</td><td class="num">${fmt(sell)}</td>
       <td class="num">~${t.entry}d</td><td class="num">~${t.target}d</td>
-      <td class="num ${off52 != null && off52 <= -15 ? 'pos' : ''}">${off52 == null ? '—' : off52.toFixed(1) + '%'}</td>
       <td class="num ${rvol >= 1.5 ? 'pos' : ''}">${rvol == null ? '—' : (rvol >= 1.5 ? '🔥 ' : '') + rvol.toFixed(1) + '×'}</td>
       <td class="num">${(s.dividends_yield_current > 0 || s.dividends_per_share_fy > 0) ? 'Yes · ' + (s.dividends_yield_current || 0).toFixed(2) + '%' : 'No'}</td>
       <td>${freqWord(s)}</td>
